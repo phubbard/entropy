@@ -21,86 +21,92 @@ import serial
 import graphitesend
 import paho.mqtt.client as paho
 
-from version import VERSION
+from version import VERS_STR
 
 
-def get_demand_chunk(serial):
+def do_chunk(serial, mqtt, graphite, topic):
+    """
+    Key routine - chunk up the serial data, feed it to the XML parser,
+    broadcast the results.
+    """
 
     buf = ''
-    in_element = False
-
     while True:
         in_buf = serial.readline().strip()
+        buf += in_buf
         log.debug(in_buf)
 
-        if not in_element:
-            if in_buf == '<InstantaneousDemand>':
-                in_element = True
-                buf += in_buf
-                continue
-            else: # Keep waiting for start of element we want
+        if in_buf == '</CurrentSummationDelivered>' or in_buf == '</InstantaneousDemand>':
+            try:
+                elem = ET.fromstring(buf)
+            except ET.ParseError:
+                log.warn('Parser error, ignoring: ' + buf)
+                buf = ''
                 continue
 
-        if in_element:
-            buf += in_buf
+            # Parsed OK
+            broadcast(process_reading(elem), mqtt, topic, graphite)
+            return
 
-        if in_buf == '</InstantaneousDemand>':
-            return buf
+
+def broadcast(datum, broker, topic, graphite):
+    """
+    Given a datum, send it out to MQTT broker and/or graphite, if they
+    are available. Also logs to screen.
+    """
+
+    if datum == None:
+        return
+
+    log.info(datum)
+
+    if broker is not None:
+        broker.publish(topic, str(datum))
+    if graphite is not None:
+        graphite.send(topic, datum, timestamp=datum['at'])
 
 
 def get_decimal_subelement(elem, tag):
     """
     For an Element, find the proper tag, convert from hex to decimal.
+    Data from the Raven looks like
+      <SummationDelivered>0x0000000001a4b8bb</SummationDelivered>
+    so we need to convert that hex string into an integer. Voila.
     """
     return int(elem.find(tag).text, 16)
 
-def process_demand(elem):
+
+def process_reading(elem):
     """
-    Process the InstantaneoousDemand element - convert to decimal,
+    For either a InstantaneousDemand or CurrentSummationDelivered element,
+    parse, convert and return a dictionary with value and timestamp.
+    Convert to decimal,
     shift timestamp, do proper scaling. Code borrows heavily from the
     raven-cosm project.
     """
 
+    # These elements are common to both
     seconds_since_2000 = get_decimal_subelement(elem, 'TimeStamp')
-    demand = get_decimal_subelement(elem, 'Demand')
     multiplier = get_decimal_subelement(elem, 'Multiplier')
     divisor = get_decimal_subelement(elem, 'Divisor')
     epoch_offset = calendar.timegm(time.strptime("2000-01-01", "%Y-%m-%d"))
     gmt = datetime.datetime.utcfromtimestamp(seconds_since_2000 + epoch_offset).isoformat()
-    if seconds_since_2000 and demand and multiplier and divisor:
-        return({"at": gmt +'Z', "demand": str(1000.0 * demand * multiplier / divisor)})
 
-def loop(serial, mqtt, graphite, mqtt_topic='/paul'):
-    """
-    Read a chunk, buffer until complete, parse and send it on.
-    """
+    # Now we branch
+    if elem.tag == 'InstantaneousDemand':
+        demand = get_decimal_subelement(elem, 'Demand')
+        return ({"at": gmt +'Z', "demand": str(1000.0 * demand * multiplier / divisor)})
+    elif elem.tag == 'CurrentSummationDelivered':
+        sum_delivered = get_decimal_subelement(elem, 'SummationDelivered')
+        sum_received = get_decimal_subelement(elem, 'SummationReceived')
+        difference = sum_delivered - sum_received
+        return({"at": gmt +'Z', "summation": str(1000.0 * difference * multiplier / divisor)})
 
-    log.info('Loop starting')
+    log.warn('Unknown element ' + elem.tag)
 
-    while True:
-        log.debug('reading from serial')
-        data_chunk = get_demand_chunk(serial)
-        log.debug('Parsing XML')
-        try:
-            elem = ET.fromstring(data_chunk)
-        except ET.ParseError:
-            log.warn('Parser error, ignoring')
-            continue
 
-        demand = process_demand(elem)
-        log.info(demand)
-
-        if mqtt is not None:
-            log.debug('sending to mqtt')
-            mqtt.publish(mqtt_topic, json.dumps(demand))
-            mqtt.loop()
-
-        if graphite is not None:
-            log.debug('graphite send')
-            graphite.send('demand', demand['demand'], timestamp=demand['at'])
-
-def setup():
-    log.basicConfig(level=log.DEBUG, format='%(asctime)s %(levelname)s [%(funcName)s] %(message)s')
+def main():
+    log.basicConfig(level=log.INFO, format='%(asctime)s %(levelname)s [%(funcName)s] %(message)s')
 
     cfg_file = 'config.ini'
     if (len(sys.argv) == 2):
@@ -115,9 +121,9 @@ def setup():
     if cf.has_section('mqtt'):
         log.info('Opening MQTT connection...')
         topic = cf.get('mqtt', 'topic')
-        mqtt = paho.Client('Entropy v' + VERSION, False)
+        mqtt = paho.Client(VERS_STR, False)
         mqtt.connect(cf.get('mqtt', 'host'), cf.getint('mqtt', 'port'))
-        mqtt.publish(topic, 'Entropy v' + VERSION + ' starting up', 0, retain=False)
+        mqtt.publish(topic, VERS_STR + ' starting up', 0, retain=False)
         mqtt.loop()
     else:
         mqtt = None
@@ -130,8 +136,10 @@ def setup():
     else:
         g = None
 
-    loop(serial_port, mqtt, g, mqtt_topic=topic)
+    log.info('Loop starting')
+    while True:
+        do_chunk(serial_port, mqtt, g, topic)
 
 
 if __name__ == '__main__':
-    setup()
+    main()
