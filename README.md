@@ -11,20 +11,20 @@ as well.
 Hardware requirements
 =====================
 
-* Raven
+* [Rainforest Automation Raven RFA-Z106](http://rainforestautomation.com/raven) or compatible
 * Compatible smart power meter
 
 Software requirements
 =====================
 
 * See requirements.txt. I assume you're using virtualenv and Pip.
-* (Optional) MQTT server, for pushing data to mobile and web clients
-* (Optional) Graphite server, for logging and plotting and sharing
+* (Optional) [MQTT server](http://mqtt.org/wiki/doku.php/brokers), for pushing data to mobile and web clients
+* (Optional) [Graphite](http://graphite.readthedocs.org/en/latest/index.html) server, for logging and plotting and sharing
 
 Installation
 ============
-* FTDI USB driver
-
+* FTDI USB driver - [read here](http://forums.whirlpool.net.au/archive/1928671).
+* Edit config.ini to match your setup - serial port, etc.
 
 Design of code
 ==============
