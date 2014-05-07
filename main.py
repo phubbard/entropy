@@ -30,12 +30,12 @@ def get_demand_chunk(serial):
     in_element = False
 
     while True:
-        in_buf = serial.readline()
-        log.debug('>' + in_buf)
+        in_buf = serial.readline().strip()
+        log.debug(in_buf)
 
         if not in_element:
             if in_buf == '<InstantaneousDemand>':
-                in_buf = True
+                in_element = True
                 buf += in_buf
                 continue
             else: # Keep waiting for start of element we want
@@ -47,6 +47,10 @@ def get_demand_chunk(serial):
         if in_buf == '</InstantaneousDemand>':
             return buf
 
+
+def get_decimal_subelement(elem, tag):
+    return int(elem.find(tag).text, 16)
+
 def process_demand(elem):
     """
     Process the InstantaneoousDemand element - convert to decimal,
@@ -54,10 +58,10 @@ def process_demand(elem):
     raven-cosm project.
     """
 
-    seconds_since_2000 = int(elem.get('TimeStamp'), 16)
-    demand = int(elem.get('Demand'), 16)
-    multiplier = int(elem.get('Multiplier'), 16)
-    divisor = int(elem.get('Divisor'), 16)
+    seconds_since_2000 = get_decimal_subelement(elem, 'TimeStamp')
+    demand = get_decimal_subelement(elem, 'Demand')
+    multiplier = get_decimal_subelement(elem, 'Multiplier')
+    divisor = get_decimal_subelement(elem, 'Divisor')
     epoch_offset = calendar.timegm(time.strptime("2000-01-01", "%Y-%m-%d"))
     gmt = datetime.datetime.utcfromtimestamp(seconds_since_2000 + epoch_offset).isoformat()
     if seconds_since_2000 and demand and multiplier and divisor:
@@ -74,9 +78,15 @@ def loop(serial, mqtt, graphite, mqtt_topic='/paul'):
         log.debug('reading from serial')
         data_chunk = get_demand_chunk(serial)
         log.debug('Parsing XML')
-        elem = ET.fromstring(data_chunk)
-        demand = process_demand(elem)
+        try:
+            elem = ET.fromstring(data_chunk)
+        except ET.ParseError:
+            log.warn('Parser error, ignoring')
+            continue
 
+        demand = process_demand(elem)
+        log.debug(demand)
+        
         if mqtt is not None:
             log.debug('sending to mqtt')
             mqtt.publish(mqtt_topic, json.dumps(demand))
@@ -118,3 +128,7 @@ def setup():
         g = None
 
     loop(serial_port, mqtt, g, mqtt_topic=topic)
+
+
+if __name__ == '__main__':
+    setup()
