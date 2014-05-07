@@ -49,6 +49,9 @@ def get_demand_chunk(serial):
 
 
 def get_decimal_subelement(elem, tag):
+    """
+    For an Element, find the proper tag, convert from hex to decimal.
+    """
     return int(elem.find(tag).text, 16)
 
 def process_demand(elem):
@@ -85,8 +88,8 @@ def loop(serial, mqtt, graphite, mqtt_topic='/paul'):
             continue
 
         demand = process_demand(elem)
-        log.debug(demand)
-        
+        log.info(demand)
+
         if mqtt is not None:
             log.debug('sending to mqtt')
             mqtt.publish(mqtt_topic, json.dumps(demand))
