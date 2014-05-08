@@ -44,27 +44,21 @@ def do_chunk(serial, mqtt, graphite, topic):
                 buf = ''
                 continue
 
-            # Parsed OK
-            broadcast(process_reading(elem), mqtt, topic, graphite)
+            # Parsed OK - is it a block we understand?
+            value, type_string = process_reading(elem)
+            if value is None:
+                return
+
+            hr_string = type_string + ' is ' + str(value)
+            log.info(hr_string)
+
+            if mqtt is not None:
+                mqtt.publish(topic, hr_string )
+
+            if graphite is not None:
+                graphite.send(type_string, value)
+
             return
-
-
-def broadcast(datum, broker, topic, graphite):
-    """
-    Given a datum, send it out to MQTT broker and/or graphite, if they
-    are available. Also logs to screen.
-    """
-
-    if datum == None:
-        return
-
-    log.info(datum)
-
-    if broker is not None:
-        broker.publish(topic, str(datum))
-    if graphite is not None:
-        graphite.send(topic, datum, timestamp=datum['at'])
-
 
 def get_decimal_subelement(elem, tag):
     """
@@ -95,12 +89,17 @@ def process_reading(elem):
     # Now we branch
     if elem.tag == 'InstantaneousDemand':
         demand = get_decimal_subelement(elem, 'Demand')
-        return ({"at": gmt +'Z', "demand": str(1000.0 * demand * multiplier / divisor)})
+        dmd_val = 1000.0 * demand * multiplier / divisor
+        # Return a tuple of dictionary, float
+        #return {"at": gmt +'Z', "demand": str(dmd_val)}, dmd_val
+        return dmd_val, 'demand'
     elif elem.tag == 'CurrentSummationDelivered':
         sum_delivered = get_decimal_subelement(elem, 'SummationDelivered')
         sum_received = get_decimal_subelement(elem, 'SummationReceived')
         difference = sum_delivered - sum_received
-        return({"at": gmt +'Z', "summation": str(1000.0 * difference * multiplier / divisor)})
+        diff_val = 1000.0 * difference * multiplier / divisor
+        #return {"at": gmt +'Z', "summation": str(diff_val)}, diff_val
+        return diff_val, 'summation'
 
     log.warn('Unknown element ' + elem.tag)
 
