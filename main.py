@@ -54,6 +54,7 @@ def do_chunk(serial, mqtt, graphite, topic):
 
             if mqtt is not None:
                 mqtt.publish(topic, hr_string )
+                mqtt.loop()
 
             if graphite is not None:
                 graphite.send(type_string, value)
@@ -108,7 +109,7 @@ def main():
     log.basicConfig(level=log.INFO, format='%(asctime)s %(levelname)s [%(funcName)s] %(message)s')
 
     cfg_file = 'config.ini'
-    if (len(sys.argv) == 2):
+    if len(sys.argv) == 2:
         cfg_file = sys.argv[1]
 
     log.info('Reading configuration file ' + cfg_file)
