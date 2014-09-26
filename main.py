@@ -18,12 +18,9 @@ import logging as log
 import sys
 
 import serial
-import graphitesend
-import paho.mqtt.client as paho
 import requests
 
 from version import VERSION
-
 
 
 def get_demand_chunk(serial):
@@ -33,11 +30,12 @@ def get_demand_chunk(serial):
 
     while True:
         in_buf = serial.readline()
-        log.debug('>' + in_buf)
+        in_buf_stripped = in_buf.strip()
+        log.debug('>' + in_buf_stripped)
 
         if not in_element:
-            if in_buf == '<InstantaneousDemand>':
-                in_buf = True
+            if in_buf_stripped == '<InstantaneousDemand>':
+                in_element = True
                 buf += in_buf
                 continue
             else: # Keep waiting for start of element we want
@@ -46,7 +44,8 @@ def get_demand_chunk(serial):
         if in_element:
             buf += in_buf
 
-        if in_buf == '</InstantaneousDemand>':
+        if in_buf_stripped == '</InstantaneousDemand>':
+            log.debug('got end of xml')
             return buf
 
 def process_demand(elem):
@@ -56,16 +55,16 @@ def process_demand(elem):
     raven-cosm project.
     """
 
-    seconds_since_2000 = int(elem.get('TimeStamp'), 16)
-    demand = int(elem.get('Demand'), 16)
-    multiplier = int(elem.get('Multiplier'), 16)
-    divisor = int(elem.get('Divisor'), 16)
+    seconds_since_2000 = int(elem.find('TimeStamp').text, 16)
+    demand = int(elem.find('Demand').text, 16)
+    multiplier = int(elem.find('Multiplier').text, 16)
+    divisor = int(elem.find('Divisor').text, 16)
     epoch_offset = calendar.timegm(time.strptime("2000-01-01", "%Y-%m-%d"))
     gmt = datetime.datetime.utcfromtimestamp(seconds_since_2000 + epoch_offset).isoformat()
     if seconds_since_2000 and demand and multiplier and divisor:
         return({"at": gmt +'Z', "demand": str(1000.0 * demand * multiplier / divisor)})
 
-def loop(serial, mqtt, graphite, mqtt_topic='/paul'):
+def loop(serial):
     """
     Read a chunk, buffer until complete, parse and send it on.
     """
@@ -76,20 +75,16 @@ def loop(serial, mqtt, graphite, mqtt_topic='/paul'):
         log.debug('reading from serial')
         data_chunk = get_demand_chunk(serial)
         log.debug('Parsing XML')
-        elem = ET.fromstring(data_chunk)
-        demand = process_demand(elem)
+        try:
+            elem = ET.fromstring(data_chunk)
+            demand = process_demand(elem)
+        except:
+            log.info('Ignoring parse errors')
+            continue
+
         # TODO read dweet thing name from config.ini
         requests.post('https://dweet.io/dweet/for/42df176b534c415e9681df5e28e348b1',
                       params=demand)
-
-        if mqtt is not None:
-            log.debug('sending to mqtt')
-            mqtt.publish(mqtt_topic, json.dumps(demand))
-            mqtt.loop()
-
-        if graphite is not None:
-            log.debug('graphite send')
-            graphite.send('demand', demand['demand'], timestamp=demand['at'])
 
 def setup():
     log.basicConfig(level=log.DEBUG, format='%(asctime)s %(levelname)s [%(funcName)s] %(message)s')
@@ -103,26 +98,7 @@ def setup():
     cf.read(cfg_file)
     log.info('Opening Raven...')
     serial_port = serial.Serial(cf.get('raven', 'port'), cf.getint('raven', 'baud'))
-
-    if cf.has_section('mqtt'):
-        log.info('Opening MQTT connection...')
-        topic = cf.get('mqtt', 'topic')
-        mqtt = paho.Client('Entropy v' + VERSION, False)
-        mqtt.connect(cf.get('mqtt', 'host'), cf.getint('mqtt', 'port'))
-        mqtt.publish(topic, 'Entropy v' + VERSION + ' starting up', 0, retain=False)
-        mqtt.loop()
-    else:
-        mqtt = None
-        topic = None
-
-    if cf.has_section('graphite'):
-        log.info('Opening Graphite connection...')
-        g = graphitesend.init(graphite_server=cf.get('graphite', 'host'),
-                          graphite_port=cf.getint('graphite', 'port'))
-    else:
-        g = None
-
-    loop(serial_port, mqtt, g, mqtt_topic=topic)
+    loop(serial_port)
 
 if __name__ == '__main__':
     setup()
