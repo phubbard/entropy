@@ -7,8 +7,7 @@
 @brief
 """
 
-VERSION = '0.1.0'
+VERSION = '0.0.1'
 DATE = '5/7/14'
-BUILD = 10
+BUILD = 1
 
-VERS_STR = 'Entropy v' + VERSION + ' ' + DATE + ' build ' + str(BUILD)
