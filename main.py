@@ -4,7 +4,7 @@
 @author Paul Hubbard
 @date 5/7/14
 @file main.py
-@brief Starting new project for home energy monitoring, using Graphite plus MQTT.
+@brief Starting new project for home energy monitoring, using various graphing systems.
 
 """
 
@@ -94,11 +94,22 @@ def loop(serial, plotly_stream):
 
         # Off to plotly too
         # TODO return pre-set X and Y from process_demand
-        x = datetime.datetime.utchomenow()
+        x = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')
         y = float(demand['demand'])
         datum = dict(x=x, y=y)
         log.debug(datum)
         plotly_stream.write(datum)
+
+def plot_two(stream_id):
+    # REMOVE BEFORE COMMIT
+    py.sign_in("phubbard", "g80698grqg")
+
+    trace1 = Scatter(x=[], y=[], stream=dict(token=stream_id))
+    data = Data([trace1])
+    py.plot(data, filename='raven')
+    s = py.Stream(stream_id)
+    s.open()
+    return s
 
 def plot_setup(stream_id):
 
@@ -132,7 +143,7 @@ def setup():
     serial_port = serial.Serial(cf.get('raven', 'port'), cf.getint('raven', 'baud'))
 
     log.info('Opening plot.ly...')
-    strm = plot_setup(cf.get('plotly', 'stream_id'))
+    strm = plot_two(cf.get('plotly', 'stream_id'))
 
     loop(serial_port, strm)
 
