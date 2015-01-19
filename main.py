@@ -168,11 +168,8 @@ def loop(serial, plotly_stream):
         # Off to plotly too
         # TODO return pre-set X and Y from process_demand
 
-def plot_two(stream_id):
+def plotly_setup(stream_id):
     # Working from https://plot.ly/python/streaming-tutorial/
-    # REMOVE BEFORE COMMIT
-    py.sign_in("phubbard", "g80698grqg")
-
     trace1 = Scatter(x=[], y=[], stream=dict(token=stream_id))
     data = Data([trace1])
     url = py.plot(data, filename='raven')
@@ -181,23 +178,6 @@ def plot_two(stream_id):
     s.open()
     return s
 
-def plot_setup(stream_id):
-
-    stream = Stream(token=stream_id, maxpoints=80)
-    trace1 = Scatter(x=[], y=[], stream=stream, mode='lines+markers')
-    data = Data([trace1])
-
-    # REMOVE BEFORE COMMIT
-    py.sign_in("phubbard", "g80698grqg")
-
-    layout = Layout(title='Electricity demand')
-    fig = Figure(data=data, layout=layout)
-    new_url = py.plot(fig, filename='raven')
-    
-    log.info(new_url)
-    s = py.Stream(stream_id)
-    s.open()
-    return s
 
 def setup():
     log.basicConfig(level=log.DEBUG, format='%(asctime)s %(levelname)s [%(funcName)s] %(message)s')
@@ -213,7 +193,7 @@ def setup():
     serial_port = serial.Serial(cf.get('raven', 'port'), cf.getint('raven', 'baud'))
 
     log.info('Opening plot.ly...')
-    strm = plot_two(cf.get('plotly', 'stream_id'))
+    strm = plotly_setup(cf.get('plotly', 'stream_id'))
 
     log.info('Starting loop...')
     loop(serial_port, strm)
