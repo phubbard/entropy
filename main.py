@@ -101,14 +101,18 @@ def loop(serial, plotly_stream):
         plotly_stream.write(datum)
 
 def plot_two(stream_id):
+    # Working from https://plot.ly/python/streaming-tutorial/
     # REMOVE BEFORE COMMIT
     py.sign_in("phubbard", "g80698grqg")
 
     trace1 = Scatter(x=[], y=[], stream=dict(token=stream_id))
     data = Data([trace1])
-    py.plot(data, filename='raven')
+    url = py.plot(data, filename='raven')
+    log.debug(url)
     s = py.Stream(stream_id)
     s.open()
+    s.write(dict(x=1, y=2))
+    s.close()
     return s
 
 def plot_setup(stream_id):
@@ -145,6 +149,7 @@ def setup():
     log.info('Opening plot.ly...')
     strm = plot_two(cf.get('plotly', 'stream_id'))
 
+    log.info('Starting loop...')
     loop(serial_port, strm)
 
 if __name__ == '__main__':
