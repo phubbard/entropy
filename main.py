@@ -179,8 +179,6 @@ def plot_two(stream_id):
     log.debug(url)
     s = py.Stream(stream_id)
     s.open()
-    s.write(dict(x=1, y=2))
-    s.close()
     return s
 
 def plot_setup(stream_id):
