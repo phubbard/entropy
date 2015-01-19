@@ -19,6 +19,9 @@ import sys
 
 import serial
 import requests
+import plotly.tools as tls
+import plotly.plotly as py  
+from plotly.graph_objs import *
 
 from version import VERSION
 
@@ -64,7 +67,7 @@ def process_demand(elem):
     if seconds_since_2000 and demand and multiplier and divisor:
         return({"at": gmt +'Z', "demand": str(1000.0 * demand * multiplier / divisor)})
 
-def loop(serial):
+def loop(serial, plotly_stream):
     """
     Read a chunk, buffer until complete, parse and send it on.
     """
@@ -83,8 +86,37 @@ def loop(serial):
             continue
 
         # TODO read dweet thing name from config.ini
-        requests.post('https://dweet.io/dweet/for/42df176b534c415e9681df5e28e348b1',
-                      params=demand)
+#        try:
+#            requests.post('https://dweet.io/dweet/for/42df176b534c415e9681df5e28e348b1',
+#                      params=demand)
+#        except ConnectionError, ce:
+#            log.warn('Unable to dweet')
+
+        # Off to plotly too
+        # TODO return pre-set X and Y from process_demand
+        x = datetime.datetime.utchomenow()
+        y = float(demand['demand'])
+        datum = dict(x=x, y=y)
+        log.debug(datum)
+        plotly_stream.write(datum)
+
+def plot_setup(stream_id):
+
+    stream = Stream(token=stream_id, maxpoints=80)
+    trace1 = Scatter(x=[], y=[], stream=stream, mode='lines+markers')
+    data = Data([trace1])
+
+    # REMOVE BEFORE COMMIT
+    py.sign_in("phubbard", "g80698grqg")
+
+    layout = Layout(title='Electricity demand')
+    fig = Figure(data=data, layout=layout)
+    new_url = py.plot(fig, filename='raven')
+    
+    log.info(new_url)
+    s = py.Stream(stream_id)
+    s.open()
+    return s
 
 def setup():
     log.basicConfig(level=log.DEBUG, format='%(asctime)s %(levelname)s [%(funcName)s] %(message)s')
@@ -98,7 +130,11 @@ def setup():
     cf.read(cfg_file)
     log.info('Opening Raven...')
     serial_port = serial.Serial(cf.get('raven', 'port'), cf.getint('raven', 'baud'))
-    loop(serial_port)
+
+    log.info('Opening plot.ly...')
+    strm = plot_setup(cf.get('plotly', 'stream_id'))
+
+    loop(serial_port, strm)
 
 if __name__ == '__main__':
     setup()

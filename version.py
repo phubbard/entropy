@@ -1,13 +1,7 @@
 #!/usr/bin/env python
 
-"""
-@author hubbard
-@date
-@file
-@brief
-"""
+VERSION = '0.0.4'
+DATE = '12/8/14'
+BUILD = 12
 
-VERSION = '0.0.2'
-DATE = '5/7/14'
-BUILD = 2
 
