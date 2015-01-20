@@ -82,6 +82,8 @@ def process_demand(elem):
     except:
         log.info("not a demand packet")
     try:
+        #again, mainly an issue in case of solar, where both the summation delivered and summation received numbers can change (instead of the meter going up and down, both numbers
+        #go up, and the difference is your actual meter.  
         summationdelivered = int(elem.find('SummationDelivered').text,16)
         summationreceived = int(elem.find('SummationReceived').text,16)
         if seconds_since_2000 and summationdelivered and multiplier and divisor:
