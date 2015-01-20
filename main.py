@@ -25,6 +25,8 @@ from plotly.graph_objs import *
 
 from version import VERSION
 
+
+
 def get_demand_chunk(serial):
 
     buf = ''
@@ -72,6 +74,7 @@ def process_demand(elem):
     try:
         demand = int(elem.find('Demand').text, 16)
         if seconds_since_2000 and demand and multiplier and divisor:
+            #if you have solar, during the middle of the day, you'll see this number spike up to something which needs to be interpreted as a negative number
             if 1000.0*demand * multiplier/divisor > 32768.0:
                 demand = -(0xffffffff - demand + 1)
             return({"at": gmt +'Z', "atinsec": seconds_since_2000, "demand": str(1000.0 * demand * multiplier / divisor), "type": 0})
@@ -87,7 +90,7 @@ def process_demand(elem):
         log.info("not a meter reading packet either")
 
 
-def loop(serial, plotly_stream):
+def loop(serial, plotly_stream1, plotly_stream2):
     """
     Read a chunk, buffer until complete, parse and send it on.
     """
@@ -104,7 +107,7 @@ def loop(serial, plotly_stream):
         try:
             elem = ET.fromstring(data_chunk)
             demand = process_demand(elem)
-
+            x = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
             #type 1 is a CurrentSummation Packet (a meter reading packet)
             if demand['type'] == 1:
                 if havereading:
@@ -115,6 +118,11 @@ def loop(serial, plotly_stream):
                         readingtime = demand['atinsec']
                         havenewreading = True
                         log.info('Actual Meter reading: ' + str(meterreading) + 'kWh')
+                        y = hardmeterreading
+                        datum = dict(x=x,y=y)
+                        log.debug(datum)
+                        plotly_stream2.write(datum)
+                        
                     else:
                         log.info('Ignoring repeated Meter Reading')
                 else:
@@ -126,12 +134,11 @@ def loop(serial, plotly_stream):
 
             #type 0 is a InstantaneousDemand Packet
             if demand['type'] == 0:
-                x = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')
                 y = float(demand['demand'])
                 datum = dict(x=x, y=y)
                 log.debug(datum)
-                plotly_stream.write(datum)
-
+                plotly_stream1.write(datum)
+                
                 if havenewreading:
                     previousreadingtime = readingtime
                     previousmeterreading = meterreading
@@ -141,6 +148,10 @@ def loop(serial, plotly_stream):
                     log.info('Current Usage: ' + demand['demand'] + 'W')
                     log.info('Approximate Meter Reading: ' + str(meterreading) + 'kWh')
                     log.info('Last Actual Meter Reading: ' + str(hardmeterreading) + 'kWh')
+                    y = meterreading
+                    datum = dict(x=x,y=y)
+                    log.debug(datum)
+                    plotly_stream2.write(datum)
 
                 elif havereading:
                     previousmeterreading = meterreading
@@ -150,6 +161,9 @@ def loop(serial, plotly_stream):
                     log.info('Current Usage: ' + demand['demand'])
                     log.info('Approximate Meter Reading: ' + str(meterreading) + 'kWh, but based on possibly stale meter reading.')
                     log.info('Last Actual Meter Reading: ' + str(hardmeterreading) + 'kWh (possibly stale reading)')
+                    #it is not an oversight that we haven't written to plotly here.  The readings are 
+                    #based on the actual meter reading that may be up to 4-5 minutes old.  Once we receive a *new* meter reading, we'll start writing 
+                    #all of the meter readings, actual when the meter reading packets come, and approximate in between.  
                 else:
                     log.info('Current Usage: ' + demand['demand'] + 'W')
                     log.info('Meter not yet read')
@@ -168,11 +182,11 @@ def loop(serial, plotly_stream):
         # Off to plotly too
         # TODO return pre-set X and Y from process_demand
 
-def plotly_setup(stream_id):
+def plotly_setup(stream_id, nameoffile):
     # Working from https://plot.ly/python/streaming-tutorial/
     trace1 = Scatter(x=[], y=[], stream=dict(token=stream_id))
     data = Data([trace1])
-    url = py.plot(data, filename='raven')
+    url = py.plot(data, filename=nameoffile)
     log.debug(url)
     s = py.Stream(stream_id)
     s.open()
@@ -193,10 +207,12 @@ def setup():
     serial_port = serial.Serial(cf.get('raven', 'port'), cf.getint('raven', 'baud'))
 
     log.info('Opening plot.ly...')
-    strm = plotly_setup(cf.get('plotly', 'stream_id'))
+    #I don't know if two stream_ids are needed or not, but I used two.  Filenames can be changed too.  
+    strm = plotly_setup(cf.get('plotly', 'stream_id1'), 'netusage')
+    strm2 = plotly_setup(cf.get('plotly', 'stream_id2'), 'electricmeter')
 
     log.info('Starting loop...')
-    loop(serial_port, strm)
+    loop(serial_port, strm, strm2)
 
 if __name__ == '__main__':
     setup()
